@@ -1,199 +1,151 @@
-{% extends "landing.html" %}
+$(function() {
 
-{% import 'widgets/multiple_locale_selector.html' as multiple_locale_selector %}
+  // Before submitting the form
+  $('#admin-form').submit(function (e) {
+    // Update locales
+    var arr = [];
+    $("#selected").parent().siblings('ul').find('li:not(".no-match")').each(function() {
+      arr.push($(this).data('id'));
+    });
+    $('#id_locales').val(arr);
 
-{% block title %}Pontoon &middot; {{'%(subtitle)s' | format(subtitle=subtitle) }}{% endblock %}
+    // Update form action
+    var slug = $('#id_slug').val();
+    if (slug.length > 0) {
+      slug += '/';
+    }
+    $('#admin-form').attr('action', $('#admin-form').attr('action').split('/projects/')[0] + '/projects/' + slug);
+  });
 
-{% block class %}admin-project{% endblock %}
+  // Submit form with Enter
+  $('html').unbind("keydown.pontoon").bind("keydown.pontoon", function (e) {
+    if ($('input[type=text]:not("input[type=search]"):focus').length > 0) {
+      var key = e.keyCode || e.which;
+      if (key === 13) { // Enter
+        // A short delay to allow digest of autocomplete before submit
+        setTimeout(function() {
+          $('#admin-form').submit();
+        }, 1);
+        return false;
+      }
+    }
+  });
 
-{% block header %}{% endblock %}
+  // Manually Sync project
+  $('.sync').click(function(e) {
+    e.preventDefault();
 
-{% block middle %}
-<form id="admin-form" method="POST" action="{{ request.path }}" class="{% if pk %}edit{% else %}add{% endif %}">
+    var button = $(this),
+        title = button.html();
 
-  <h1 id="title">
-  {{ '%(subtitle)s' | format(subtitle=subtitle) }}
-  {% if pk %}
-  <aside>
-    <a href="{{ url('pontoon.admin.project.new') }}">Add new</a>
-    {% if translate_locale and form.slug.value() != '' %}
-    <a class="translate{% if not ready %} hidden{% endif %}" href="{{ url('pontoon.locale.project', translate_locale, form.slug.value()) }}">Translate</a>
-    {% endif %}
-  </aside>
-  {% endif %}
-  </h1>
+    if (button.is('.in-progress')) {
+      return;
+    }
 
-  <ul class="notification{% if not messages %} hidden{% endif %}">
-      {% for message in messages %}
-      <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
-      {% endfor %}
-  </ul>
+    button.addClass('in-progress').html('Syncing...');
 
-  {% csrf_token %}
+    $.ajax({
+      url: '/projects/' + $('#id_slug').val() + '/sync/'
+    }).success(function() {
+      button.html('Sync started');
+    }).error(function() {
+      button.html('Whoops!');
+    }).complete(function() {
+      setTimeout(function() {
+        button.removeClass('in-progress').html(title);
+      }, 2000);
+    });
+  });
 
-  {% if pk %}
-  <input type="hidden" value="{{ pk }}" name="pk">
-  {% endif %}
+  // Suggest slugified name for new projects
+  $('#id_name').blur(function() {
+    if ($('input[name=pk]').length > 0 || !$('#id_name').val()) {
+      return;
+    }
+    $('#id_slug').attr('placeholder', 'Retrieving...');
+    $.ajax({
+      url: '/admin/get-slug/',
+      data: {
+        name: $('#id_name').val()
+      },
+      success: function(data) {
+        var value = (data === "error") ? "" : data;
+        $('#id_slug').val(value);
+      },
+      error: function() {
+        $('#id_slug').attr('placeholder', '');
+      }
+    });
+  });
 
-  <div class="clearfix">
-      {{ form.name.label_tag() }}
-      {{ form.name }}
-      {{ form.name.errors }}
-  </div>
-  <div class="clearfix">
-      {{ form.slug.label_tag() }}
-      {{ form.slug }}
-      {{ form.slug.errors }}
-  </div>
-  <div class="locales clearfix">
-      {{ multiple_locale_selector.render(locales_available, locales_selected) }}
-      {{ form.locales }}
-      {{ form.locales.errors }}
-  </div>
+  // Select repository type
+  $('body').click(function () {
+    $('.repository')
+      .find('.menu').hide().end()
+      .find('.select').removeClass('opened');
+  });
+  $('.repository .type li').click(function () {
+    var selected = $(this).html(),
+        selected_lower = selected.toLowerCase();
+    $(this).parents('.select').find('.title').html(selected);
+    $('#id_repository_type').val(selected_lower);
+    $('.details-wrapper').attr('data-repository-type', selected_lower);
+  });
+  // Show human-readable value
+  $('.repository .type li[data-type=' + $('#id_repository_type').val() + ']').click();
 
-  <h2>
-    <span>Repositories</span>
-    <a href="#add-subpage" class="add-repo">Add more</a>
-  </h2>
-  {{ repo_formset.management_form }}
-  {{ repo_formset.non_form_errors() }}
-  {% for repo_form in repo_formset %}
-    <div class="repository clearfix">
-      {{ repo_form.id }}
-      <section class="type-wrapper">
-        {{ repo_form.type.label_tag() }}
-        {{ repo_form.type }}
-      </section>
-      <section class="details-wrapper">
-        <div class="repo">
-          {{ repo_form.url.label_tag() }}
-          {{ repo_form.url }}
-        </div>
-      </section>
-      <section class="source-wrapper">
-        {{ repo_form.source_repo.label_tag() }}
-        {{ repo_form.source_repo }}
-      </section>
-      <section class="delete-wrapper">
-        <div class="delete">
-          {{ repo_form.DELETE.label_tag() }}
-          {{ repo_form.DELETE }}
-        </div>
-      </section>
-      <section class="prefix-wrapper">
-        <div class="prefix">
-          {{ repo_form.permalink_prefix.label_tag() }}
-          {{ repo_form.permalink_prefix }}
-          {{ repo_form.permalink_prefix.errors }}
-        </div>
-      </section>
-    </div>
-  {% endfor %}
-  <div class="repository-empty clearfix">
-    {{ repo_formset.empty_form.id }}
-    <section class="type-wrapper">
-      {{ repo_formset.empty_form.type.label_tag() }}
-      {{ repo_formset.empty_form.type }}
-    </section>
-    <section class="details-wrapper">
-      <div class="repo">
-        {{ repo_formset.empty_form.url.label_tag() }}
-        {{ repo_formset.empty_form.url }}
-      </div>
-    </section>
-    <section class="delete-wrapper">
-      <div class="delete">
-        {{ repo_formset.empty_form.DELETE.label_tag() }}
-        {{ repo_formset.empty_form.DELETE }}
-      </div>
-    </section>
-    <section class="prefix-wrapper">
-      <div class="prefix">
-        {{ repo_formset.empty_form.permalink_prefix.label_tag() }}
-        {{ repo_formset.empty_form.permalink_prefix }}
-      </div>
-    </section>
-    {{ repo_formset.empty_form.errors }}
-  </div>
+  // Delete subpage
+  $('body').on('click.pontoon', '.delete-subpage', function (e) {
+    e.preventDefault();
+    $(this).parent().toggleClass('delete');
+    $(this).next().prop('checked', !$(this).next().prop('checked'));
+  });
+  $('.subpages [checked]').click().prev().click();
 
-  <h2>Website</h2>
+  // Add subpage
+  var count = $('.subpages:last').data('count');
+  $('.add-subpage').click(function(e) {
+    e.preventDefault();
+    var form = $('.subpages:last').html().replace(/__prefix__/g, count);
+    $('.subpages:last').before('<div class="subpages clearfix">' + form + '</div>');
+    count++;
+    $('#id_subpage_set-TOTAL_FORMS').val(count);
+  });
 
-  <div class="clearfix">
-      {{ form.url.label_tag() }}
-      {{ form.url }}
-      {{ form.url.errors }}
-  </div>
-  <div class="clearfix">
-      {{ form.width.label_tag() }}
-      {{ form.width }}
-      {{ form.width.errors }}
-  </div>
-  <div class="checkbox clearfix">
-      <label for="id_links">
-          {{ form.links }}{{ form.links.label }}
-      </label>
-  </div>
+  function toggleBranchInput(repoIndex) {
+    //id_repositories-0-type
+    $('#id_repositories-' + repoIndex + '-type').change(function(e) {
+      if (e.target.value === 'git') {
+        $('#id_repositories-' + repoIndex + '-branch').show();
+        $('[for="id_repositories-' + repoIndex + '-branch"]').show();
+      } else {
+        $('#id_repositories-' + repoIndex + '-branch').hide();
+        $('[for="id_repositories-' + repoIndex + '-branch"]').hide();
+      }
+    });
+  }
+  // Initial branch toggle. Need to loop over all repos on init.
+  var $totalForms = $('#id_repositories-TOTAL_FORMS');
+  var count = parseInt($totalForms.val(), 10);
+  while (count) {
+    toggleBranchInput(--count);
+  }
 
-  <h2>Subpages
-      <span class="small">(optional)</span>
-      <a href="#add-subpage" class="add-subpage">Add more</a>
-  </h2>
+  // Add repo
+  $('.add-repo').click(function(e) {
+    e.preventDefault();
+    var count = parseInt($totalForms.val(), 10);
 
-  {{ subpage_formset.management_form }}
-  {% for form in subpage_formset %}
-      {{ form.id }}
-  <div class="subpages clearfix">
-      {{ form.name.label_tag(label_suffix='') }}
-      {{ form.url.label_tag(label_suffix='') }}
-      {{ form.name }}
-      {{ form.url }}
-      <button title="Delete subpage" class="button delete-subpage fa fa-trash-o" tabindex="-1"></button>
-      {{ form.DELETE }}
-      {{ form.name.errors }}
-      {{ form.url.errors }}
-  </div>
-  {% endfor %}
-  <div class="subpages clearfix" data-count="{{ subpage_formset.total_form_count() }}">
-      {{ subpage_formset.empty_form.name.label_tag(label_suffix='') }}
-      {{ subpage_formset.empty_form.url.label_tag(label_suffix='') }}
-      {{ subpage_formset.empty_form.name }}
-      {{ subpage_formset.empty_form.url }}
-      <button title="Delete subpage" class="button delete-subpage fa fa-trash-o" tabindex="-1"></button>
-      {{ subpage_formset.empty_form.DELETE }}
-      {{ subpage_formset.empty_form.name.errors }}
-      {{ subpage_formset.empty_form.url.errors }}
-  </div>
+    var $emptyForm = $('.repository-empty');
+    var form = $emptyForm.html().replace(/__prefix__/g, count);
+    $('.repository:last').after('<div class="repository clearfix">' + form + '</div>');
 
-  <h2>Project info <span class="small">(optional)</span></h2>
+    toggleBranchInput(count);
 
-  <div>
-      {{ form.info_brief }}
-      <p class="subtitle">Supports HTML</p>
-      {{ form.info_brief.errors }}
-  </div>
+    $totalForms.val(count + 1);
+  });
 
-  <div class="controls clearfix">
-      {% if settings.MANUAL_SYNC %}
-      <button class="sync button">Sync</button>
-      {% endif %}
-      <div class="checkbox clearfix">
-          <label for="id_disabled">
-              {{ form.disabled }}{{ form.disabled.label }}
-          </label>
-      </div>
-      <button class="button">Save project</button>
-      <a href="{{ url('pontoon.admin') }}" class="cancel">Cancel</a>
-  </div>
+  // Auto-Update project if chosen locales changed
+  $('.repository.autoupdate .update:visible').click();
 
-</form>
-{% endblock %}
-
-{% block extend_css %}
-  {% stylesheet 'admin_project' %}
-  {% stylesheet 'multiple_locale_selector' %}
-{% endblock %}
-
-{% block extend_js %}
-  {% javascript 'admin_project' %}
-  {% javascript 'multiple_locale_selector' %}
-{% endblock %}
+});
